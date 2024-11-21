@@ -1,81 +1,76 @@
-name: Build Zed for Windows
+name: Build Zed Manually
 
 on:
-  workflow_dispatch:
-
+  workflow_dispatch: # Enables manual trigger
 
 jobs:
-  Build:
+  build:
     runs-on: windows-latest
 
     steps:
-    - name: Checkout
-      uses: actions/checkout@main
+      - name: Enable long paths in Git
+        run: |
+          git config --system core.longpaths true
 
-    - name: Install .NET Core
-      uses: actions/setup-dotnet@v4
-      with:
-        dotnet-version: 8.0.x
+      - name: Enable long paths in Windows
+        shell: powershell
+        run: |
+          New-ItemProperty -Path "HKLM:\SYSTEM\CurrentControlSet\Control\FileSystem" `
+            -Name "LongPathsEnabled" -Value 1 -PropertyType DWORD -Force
 
-    - name: Setup MSBuild.exe
-      uses: microsoft/setup-msbuild@v2
+      - name: Checkout repository
+        uses: actions/checkout@v3
+        with:
+          repository: zed-industries/zed
+          ref: main
 
-    - name: Install Toolchain
-      run: rustup target add wasm32-wasi
+      - name: Install rust nightly
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: nightly
+          override: true
+          target: wasm32-wasip1
 
-    - name: Clone Source Code
-      run: |
-        git config --global user.email 41898282+github-actions[bot]@users.noreply.github.com
-        git config --global user.name github-actions[bot]
-        git clone https://github.com/zed-industries/zed -b main zed
+      - name: Rust Cache
+        uses: Swatinem/rust-cache@v2.7.3
 
-    - name: Build Executable
-      run: |
-        cd zed
-        cargo build --release
+      - name: Build release
+        uses: actions-rs/cargo@v1
+        with:
+          command: build
+          args: --release
 
-    - name: Compile Setup Wizard
-      uses: Minionguyjpro/Inno-Setup-Action@v1.2.2
-      with:
-        path: zed_wizard.iss
-        options: /O+
-        
-    - name: Upload Setup Wizard
-      uses: actions/upload-artifact@v4
-      with:
-        name: setup
-        path: Output\zed_setup.exe
+      - name: Archive build
+        uses: actions/upload-artifact@v4
+        with:
+          name: zed-release
+          path: target/release/zed.exe
 
-
-  Upload:
-    needs: Build
+  release:
+    needs: build
     runs-on: ubuntu-latest
-    steps:
-      - name: Checkout
-        uses: actions/checkout@main
+    permissions:
+      contents: write
 
-      - name: Download Release Folder
+    steps:
+      - name: Download release artifact
         uses: actions/download-artifact@v4
         with:
-          name: setup
-          path: Output
+          name: zed-release
+          path: zed-release
 
-      - name: Setup Git Environment
-        run: |
-          git config --global user.email 41898282+github-actions[bot]@users.noreply.github.com
-          git config --global user.name github-actions[bot]
+      - name: Get the current date
+        id: date
+        run: echo "CURRENT_DATE=$(date +'%Y%m%d')" >> $GITHUB_ENV
 
-      - name: Generate Release Tag
-        id: tag
-        run: |
-          echo "::set-output name=release_tag::$(date +"%Y.%m.%d")"
-          echo "::set-output name=release_date::$(date +"%Y.%m.%d")"     
-          
-      - name: Upload to Releases
+      - name: Zip the release artifact
+        run: zip -r zed-windows.zip zed-release/*
+
+      - name: Upload release build artifact to GitHub Release
         uses: softprops/action-gh-release@v2
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
-          name: ${{ steps.tag.outputs.release_date }} Zed Windows
-          tag_name: ${{ steps.tag.outputs.release_tag }}
-          files: Output/zed_setup.exe
+          name: ${{ env.CURRENT_DATE }}
+          tag_name: ${{ env.CURRENT_DATE }}
+          draft: false
+          make_latest: true
+          files: zed-windows.zip
