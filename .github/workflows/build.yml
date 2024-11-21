@@ -1,11 +1,12 @@
-name: Build Zed Nightly
+name: Build Zed Manually
 
 on:
-  schedule:
-    - cron: "0 0 * * *" # Runs every night at midnight UTC
-  push:
-    branches:
-      - main
+  workflow_dispatch: # Enables manual trigger
+    inputs:
+      build_target:
+        description: 'Specify the build target (e.g., nightly, stable)'
+        required: false
+        default: 'nightly'
 
 jobs:
   build:
